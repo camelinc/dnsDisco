@@ -255,7 +255,7 @@ func main() {
 
   // process results
   for res := range rCh {
-    outString := fmt.Sprintf("%s\t%s\t%s\n", res.Hostname, res.Ip, res.PTR)
+    outString := fmt.Sprintf("%-15s\t%s\t%s\n", res.Ip, res.Hostname, res.PTR)
     fmt.Printf(outString)
 
     //verify routable
@@ -281,7 +281,7 @@ func main() {
       }
       w.Flush()
 
-    }else {
+    }else{
       log.Printf("Not a global Unicast: %v\n", res.Ip)
     }
   }
