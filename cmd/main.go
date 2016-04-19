@@ -1,303 +1,153 @@
+
 package main
 
 //TODO: AXFR
 //TODO: netrange
 
 import (
-  "net"
   "flag"
-  "log"
   "runtime"
-  "time"
-  "sync"
   "strings"
   "fmt"
   "os"
-  "bufio"
   "io/ioutil"
+  "bufio"
+  "time"
+  "sync"
+
+  //"runtime/debug"
+  "runtime/pprof"
+
+  "dnsDisco/shared"
+  "github.com/op/go-logging"
+)
+
+var log = logging.MustGetLogger("example")
+var format = logging.MustStringFormatter(
+    `%{color}%{time:15:04:05.000} %{shortfunc} ▶ %{level:.4s} %{id:03x}%{color:reset} %{message}`,
 )
 const (
 	TIMEOUT time.Duration = 3 // seconds
 )
-// pipe log to devnull
-type DevNull struct{}
-func (DevNull) Write(p []byte) (int, error) {
-	return len(p), nil
-}
 
-type DNSentry struct {
-  Hostname string
-  Ip net.IP
-  PTR string
-}
-//https://stackoverflow.com/questions/15323767/does-golang-have-if-x-in-construct-similar-to-python
-func stringInSlice(newHostname string, haystack []string) bool {
-	for _, knownHostname := range haystack {
-		if knownHostname == newHostname {
-			return true
-		}
-	}
-	return false
-}
+//distributor
+// recv result in channel
+// send work via channel
+  // send stop
+//func dispatcher(taskChan chan Task) resultChan chan Result{
 
-func checkWildcard(domain string) DNSentry  {
-  randInt := 1234567
-  rec := fmt.Sprintf("%d.%s", randInt, domain)
+//worker
+// recv work via channel
+//   recvCh := make(chan string, 5)
+  // recv stop
+// send result via channel
+// func worker(taskChan chan Task) resultChan chan Eesult{
 
-  r, err := net.LookupHost(rec) //TODO: problem with T-Online DNSerror
 
-  if err != nil {
-    if err.(*net.DNSError).IsTimeout {
-      log.Printf("*** timeout error: %s\n", err.Error())
-    }else if outputVerbose {
-      log.Printf("*** error: %s\n", err.Error())
-    }
-    // log.Printf("%v\n", err)
+func setupLogging(log *logging.Logger, debugOutput *bool) {
+  // For demo purposes, create two backend for os.Stderr.
+  backend2 := logging.NewLogBackend(os.Stderr, "", 0)
+
+  // For messages written to backend2 we want to add some additional
+  // information to the output, including the used log level and the name of
+  // the function.
+  backend2Formatter := logging.NewBackendFormatter(backend2, format)
+  backend2FormatterLeveled := logging.AddModuleLevel(backend2Formatter)
+  if *debugOutput {
+    backend2FormatterLeveled.SetLevel(logging.DEBUG, "")
+  } else {
+    backend2FormatterLeveled.SetLevel(logging.WARNING, "")
   }
 
-  for _, ans := range r{
-    ansIp := net.ParseIP(ans)
-    res := DNSentry{rec, ansIp, ""}
-    log.Printf("Result: %v\n", res)
-    return res
-  }
-  return DNSentry{"", net.ParseIP("0"), ""}
+  logging.SetBackend(backend2FormatterLeveled)
+
+  // Set the backends to be used.
+  var logResults = logging.MustGetLogger("results")
+  var format3 = logging.MustStringFormatter(`%{message}`,)
+  backend3 := logging.NewLogBackend(os.Stdout, "", 0)
+  backend3Formatter := logging.NewBackendFormatter(backend3, format3)
+  backend3FormatterLeveled := logging.AddModuleLevel(backend3Formatter)
+  backend3FormatterLeveled.SetLevel(logging.INFO, "")
+
+  logResults.SetBackend(backend3FormatterLeveled)
+
+  return
+  log.Debugf("debug %s", "test")
+  log.Infof("info")
+  log.Notice("notice")
+  log.Warning("warning")
+  log.Error("err")
+  log.Critical("crit")
 }
 
-func lookupIpAddress(rr DNSentry, domain string, linkChan chan string) string {
-  r, err := net.LookupAddr(rr.Ip.String())
-  //r, err := net.LookupHost(rr.Ip.String())
-
-  if err != nil {
-    if err.(*net.DNSError).IsTimeout {
-      log.Printf("*** timeout error: %s\n", err.Error())
-    }
-    // log.Printf("%v\n", err)
-  }
-  //TODO: only one response is present where 1+ exist: dig -x 193.30.192.26
-  // log.Printf("%v\t%v\n", rr, r)
-
-  var res string
-  //check wildcard
-  for _, ans := range r{
-    // log.Printf("%v\t%v\n", rr, ans)
-
-    res = ans
-    //add newly discovered hostnames
-    if strings.Contains(res, domain) {
-      if !strings.HasPrefix(res, rr.Hostname) {
-        //only add if hostname is new
-        if !stringInSlice(res, knownHostnames) {
-          linkChan <- res
-        }
-      }
-    }
-  }
-  return res
-}
-func worker(domain string, linkChan chan string, done chan string) <-chan DNSentry{
-  // fmt.Printf("Starting goroutine\n")
-  rCh := make(chan DNSentry, 5)
-
-  // prepare workers
-  go func() {
-    var wg sync.WaitGroup
-
-    if outputVerbose {
-      log.Printf("Starting %d goroutines\n",runtime.NumCPU())
-    }
-
-    // perform wildcard check
-    //checkWildcard(domain)
-    //return
-    wildcard := checkWildcard(domain)
-
-    for i := 0; i < runtime.NumCPU(); i++ {
-      wg.Add(1)
-
-      go func() {
-        if outputVerbose {
-          log.Printf("Started goroutine\n")
-        }
-
-SendRequestLoop:
-        //for {
-        //  j, url := <-linkChan {
-        for url := range linkChan {
-          if outputVerbose {
-            log.Printf("Started processing %s\n", url)
-          }
-
-          rec := url
-          r, err := net.LookupHost(rec) //TODO: problem with T-Online DNSerror
-
-          if err != nil {
-            if err.(*net.DNSError).IsTimeout {
-              log.Printf("*** timeout error: %s\n", err.Error())
-            }else if outputVerbose {
-                log.Printf("*** error: %s\n", err.Error())
-            }
-            // log.Printf("%v\n", err)
-          }
-
-          //check wildcard
-          for _, ans := range r{
-            ansIp := net.ParseIP(ans)
-            res := DNSentry{rec, ansIp, ""}
-            //res := DNSentry{rec, ans}
-            // log.Printf("wildcard?%v\t%v\n", wildcard, res)
-
-            if wildcard.Ip.Equal(ansIp) {
-              if outputVerbose {
-                log.Printf("wildcard!!!%v\t%v\n", wildcard, res)
-              }
-              continue SendRequestLoop
-            }
-          }
-
-
-          // Stuff must be in the answer section
-          for _, ans := range r{
-            ansIp := net.ParseIP(ans)
-            res := DNSentry{rec, ansIp, ""}
-            res.PTR = lookupIpAddress(res, domain, linkChan)
-            // log.Printf("Result: %v\n", res)
-            knownHostnames = append(knownHostnames, rec)
-            rCh <- res
-          }
-
-          //TODO: CNAME
-        }
-        if outputVerbose {
-          log.Printf("Done processing goroutine: %v\n",wg)
-        }
-        wg.Done()
-      }()
-
-    }
-    // Waiting for all goroutines to finish (otherwise they die as main routine dies)
-    //  and close the result channel
-    go func() {
-      wg.Wait()
-      close(rCh)
-    }()
-    // fmt.Printf("Waiting To Finish: %v\n",wg)
-    wg.Wait()
-  }()
-  return rCh
-}
-
-var outputVerbose bool
-var knownHostnames []string
-var networkRanges []string
+var (
+  domain  = flag.String("domain", "evil.com", "the domain to harvest")
+  dnsfile = flag.String("dnsfile", "/tmp/dat", "a file with hostnames")
+  outfile = flag.String("outfile", "hosts.txt", "a file to store the discovered hostnames")
+  //TODO: reverse lookup
+  //TODO: netrange lookup
+  debugOutput = flag.Bool("debug", false, "enable verbose output?")
+)
 
 func main() {
+
   runtime.GOMAXPROCS(runtime.NumCPU())
-  //log.SetOutput(new(DevNull))
-  // net.dnsReadConfig
-  // fmt.Printf("%v\n",net)
-
-  var wg sync.WaitGroup
-  lCh := make(chan string, 5)
-
-  // worker closes the done channel when it returns; it may do so before
-  // receiving all the values from c and errc.
-  done := make(chan string)
-  defer close(done)
 
   // Command line options
-  var domain string
-  flag.StringVar(&domain, "domain", "evil.com", "the domain to harvest")
-  var dnsfile string
-  flag.StringVar(&dnsfile, "dnsfile", "/tmp/dat", "a file with hostnames")
-  var outfile string
-  flag.StringVar(&outfile, "outfile", "hosts.txt", "a file to store the discovered hostnames")
-  //TODO: reverse lookup
-    //TODO: netrange lookup
-  flag.BoolVar(&outputVerbose, "verbose", false, "enable verbose output?")
   flag.Parse()
+  setupLogging(log, debugOutput)
 
   if len(flag.Args()) == 3 {
     flag.Usage()
     os.Exit(1)
   }
 
+  var wg sync.WaitGroup
+  dispatcher := shared.NewDispatcher(5, wg)
+  dispatcher.Run()
+
   // Reading DNS file
-  dat, err := ioutil.ReadFile(dnsfile)
+  dat, err := ioutil.ReadFile(*dnsfile)
   if err != nil {
     panic(err)
   }
   yourLinksSlice := strings.Split(string(dat), "\n")
 
-  // prepare working list
-  lCh <- domain
-  var hostname string
-  go func() {
-    // Processing all links by spreading them to `free` goroutines
-    for _, link := range yourLinksSlice {
-      hostname = fmt.Sprintf("%s.%s.", link, domain)
-      if outputVerbose {
-        fmt.Printf("Sending %s\n",hostname)
-      }
-      lCh <- hostname
+  //check for wildcard
+  wildcard := shared.CheckWildcard(shared.Task{Domain: *domain,})
+
+  // Processing all links by spreading them to `free` goroutines
+  for _, host := range yourLinksSlice {
+    task := &shared.Task{
+      Domain    : *domain,
+      Host      : host,
+      Wildcard  : wildcard,
     }
-  	close(lCh)
-    // log.Printf("Finished wordlist\n")
-  }()
 
-  // worker2
-  rCh := worker(domain, lCh, done)
+    log.Debugf("Sending Task for '%v'\n",task)
+	  //log.Printf("Main sending Task for '%s.%s'\n", task.Host, task.Domain)
 
-  //TODO: results gatherer in separate goroutine
-  // open outfile
-  f, err := os.Create(outfile)
-  w := bufio.NewWriter(f)
-
-  // process results
-  for res := range rCh {
-    outString := fmt.Sprintf("%-15s\t%s\t%s\n", res.Ip, res.Hostname, res.PTR)
-    fmt.Printf(outString)
-
-    //verify routable
-    // https://golang.org/pkg/net/#IP.IsGlobalUnicast
-    if res.Ip.IsGlobalUnicast() {
-      // get network range for res.Ip
-      cidr := fmt.Sprintf("%s/24",res.Ip)
-      _, networkRange, _ := net.ParseCIDR(cidr)
-      //lookup at RIPE:
-      //  https://github.com/RIPE-NCC/whois/wiki/WHOIS-REST-API
-      //  https://rest.db.ripe.net/search?&query-string=78.47.227.0
-      //  https://rest.db.ripe.net/search?type-filter=inetnum&query-string=netto
-      //log.Printf("network range: %v\n", networkRange)
-      networkRangeS := networkRange.String()
-      if !stringInSlice(networkRangeS, networkRanges) {
-        networkRanges = append(networkRanges, networkRangeS)
-      }
-      //log.Printf("network ranges: %v\n", networkRanges)
-
-      _, err := w.WriteString(outString)
-      if err != nil {
-        panic(err)
-      }
-      w.Flush()
-
-    }else{
-      log.Printf("Not a global Unicast: %v\n", res.Ip)
-    }
+    shared.TaskQueue <- task
   }
 
-  // Closing channel (waiting in goroutines won't continue any more)
+  close(shared.TaskQueue) //FIXME use a done channel
+  log.Infof("Finished wordlist '%v'\n", shared.TaskQueue)
 
-  // Waiting for all goroutines to finish (otherwise they die as main routine dies)
-  wg.Wait()
-  // log.Printf("Waiting To Finish: %v\n",wg)
-  wg.Wait()
+  //dispatcher.Stop()
+  //pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 
-  fmt.Printf("\nPrinting likely network ranges:\n")
-  for _, networkRange := range networkRanges {
-    outString := fmt.Sprintf("%s\n", networkRange)
-    fmt.Printf(outString)
+  //time.Sleep(1500 * time.Millisecond)
+  //pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+  log.Debugf("Waiting for goroutines to finish '%v'\n", dispatcher.DispatcherWG)
+  dispatcher.DispatcherWG.Wait()
+
+  if false {
+    reader := bufio.NewReader(os.Stdin)
+    text, _ := reader.ReadString('\n')
+    fmt.Println(text)
+
+    pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
   }
 
-  //log.Println("\nTerminating Program")
+
 }
