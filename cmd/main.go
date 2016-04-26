@@ -1,48 +1,47 @@
-
 package main
 
 //TODO: AXFR
 //TODO: netrange
 
 import (
+  "bufio"
   "flag"
+  "fmt"
+  "io/ioutil"
+  "os"
   "runtime"
   "strings"
-  "fmt"
-  "os"
-  "io/ioutil"
-  "bufio"
-  "time"
   "sync"
+  "time"
 
   //"runtime/debug"
   "runtime/pprof"
 
-  "dnsDisco/shared"
+  "github.com/camelinc/dnsDisco/shared"
   "github.com/op/go-logging"
 )
 
 var log = logging.MustGetLogger("example")
 var format = logging.MustStringFormatter(
-    `%{color}%{time:15:04:05.000} %{shortfunc} ▶ %{level:.4s} %{id:03x}%{color:reset} %{message}`,
+  `%{color}%{time:15:04:05.000} %{shortfunc} ▶ %{level:.4s} %{id:03x}%{color:reset} %{message}`,
 )
+
 const (
-	TIMEOUT time.Duration = 3 // seconds
+  TIMEOUT time.Duration = 3 // seconds
 )
 
 //distributor
 // recv result in channel
 // send work via channel
-  // send stop
+// send stop
 //func dispatcher(taskChan chan Task) resultChan chan Result{
 
 //worker
 // recv work via channel
 //   recvCh := make(chan string, 5)
-  // recv stop
+// recv stop
 // send result via channel
 // func worker(taskChan chan Task) resultChan chan Eesult{
-
 
 func setupLogging(log *logging.Logger, debugOutput *bool) {
   // For demo purposes, create two backend for os.Stderr.
@@ -56,14 +55,14 @@ func setupLogging(log *logging.Logger, debugOutput *bool) {
   if *debugOutput {
     backend2FormatterLeveled.SetLevel(logging.DEBUG, "")
   } else {
-    backend2FormatterLeveled.SetLevel(logging.WARNING, "")
+    backend2FormatterLeveled.SetLevel(logging.INFO, "")
   }
 
   logging.SetBackend(backend2FormatterLeveled)
 
   // Set the backends to be used.
   var logResults = logging.MustGetLogger("results")
-  var format3 = logging.MustStringFormatter(`%{message}`,)
+  var format3 = logging.MustStringFormatter(`%{message}`)
   backend3 := logging.NewLogBackend(os.Stdout, "", 0)
   backend3Formatter := logging.NewBackendFormatter(backend3, format3)
   backend3FormatterLeveled := logging.AddModuleLevel(backend3Formatter)
@@ -114,18 +113,18 @@ func main() {
   yourLinksSlice := strings.Split(string(dat), "\n")
 
   //check for wildcard
-  wildcard := shared.CheckWildcard(shared.Task{Domain: *domain,})
+  wildcard := shared.CheckWildcard(shared.Task{Domain: *domain})
 
   // Processing all links by spreading them to `free` goroutines
   for _, host := range yourLinksSlice {
     task := &shared.Task{
-      Domain    : *domain,
-      Host      : host,
-      Wildcard  : wildcard,
+      Domain:   *domain,
+      Host:     host,
+      Wildcard: wildcard,
     }
 
-    log.Debugf("Sending Task for '%v'\n",task)
-	  //log.Printf("Main sending Task for '%s.%s'\n", task.Host, task.Domain)
+    log.Debugf("Sending Task for '%v'\n", task)
+    //log.Printf("Main sending Task for '%s.%s'\n", task.Host, task.Domain)
 
     shared.TaskQueue <- task
   }
@@ -148,6 +147,5 @@ func main() {
 
     pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
   }
-
 
 }
