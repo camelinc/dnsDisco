@@ -4,6 +4,7 @@ import (
   "fmt"
   "sync"
   "time"
+  "os"
 )
 
 var (
@@ -21,19 +22,27 @@ type Dispatcher struct {
   WorkerWG     *sync.WaitGroup
   DispatcherWG *sync.WaitGroup
   quit         chan bool
+  outFile      *string
+  outFileP     *os.File
 }
 
-func NewDispatcher(maxWorkers int, myWG sync.WaitGroup) *Dispatcher {
-
+func NewDispatcher(maxWorkers int, myWG sync.WaitGroup, myOutFile *string) *Dispatcher {
   return &Dispatcher{
     WorkerPool:   make(chan chan *Task, maxWorkers),
     WorkerWG:     new(sync.WaitGroup),
     DispatcherWG: new(sync.WaitGroup),
     quit:         make(chan bool),
+    outFile:      myOutFile,
   }
 }
 
 func (d *Dispatcher) Run() {
+  f, err := os.Create(*d.outFile)
+  if err != nil {
+    panic(err)
+  }
+  d.outFileP = f
+
   // starting n number of workers
   for i := 0; i < MaxWorker; i++ {
     worker := NewWorker(d.WorkerPool)
@@ -89,14 +98,24 @@ func (d *Dispatcher) gather() {
         switch res := res.(type) {
         case *resultHost:
           go func(r *resultHost) {
-            //FIXME: write to file
-            fmt.Printf("%s.%s\t%s\t%s\n", r.Host, r.Domain, r.IP, r.PTR)
+            out := fmt.Sprintf("%s.%s\t%s\t%s\n", r.Host, r.Domain, r.IP, r.PTR)
+            fmt.Print(out)
+
+            _, err := d.outFileP.WriteString(out)
+            if err != nil {
+              panic(err)
+            }
           }(res)
 
         case *resultCname:
           go func(r *resultCname) {
-            //FIXME: write to file
-            fmt.Printf("%s.%s\t%s\n", r.Host, r.Domain, r.Cname)
+            out := fmt.Sprintf("%s.%s\t%s\n", r.Host, r.Domain, r.Cname)
+            fmt.Print(out)
+
+            _, err := d.outFileP.WriteString(out)
+            if err != nil {
+              panic(err)
+            }
           }(res)
 
         default:

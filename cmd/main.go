@@ -102,7 +102,7 @@ func main() {
   }
 
   var wg sync.WaitGroup
-  dispatcher := shared.NewDispatcher(5, wg)
+  dispatcher := shared.NewDispatcher(5, wg, outfile)
   dispatcher.Run()
 
   // Reading DNS file
@@ -114,6 +114,7 @@ func main() {
 
   //check for wildcard
   wildcard := shared.CheckWildcard(shared.Task{Domain: *domain})
+  //TODO: parse TXT record
 
   // Processing all links by spreading them to `free` goroutines
   for _, host := range yourLinksSlice {
